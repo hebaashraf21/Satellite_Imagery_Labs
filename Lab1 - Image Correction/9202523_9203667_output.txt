@@ -1,0 +1,52 @@
+Band 1:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 2:
+  Indices of bad pixels: [(1, 36), (6, 11), (7, 25), (10, 11), (24, 7), (25, 27), (29, 15), (29, 51), (44, 27), (45, 30), (59, 24), (61, 37)]
+  Corrected values: [775, 783, 801, 794, 876, 859, 825, 821, 785, 792, 812, 833]
+  L1 Loss: 0.018798828125
+Band 3:
+  Indices of bad pixels: [(2, 6), (2, 16), (9, 31), (14, 35), (30, 12), (47, 43), (49, 2), (51, 38), (52, 28), (54, 8)]
+  Corrected values: [704, 707, 828, 766, 744, 702, 704, 724, 752, 723]
+  L1 Loss: 0.042236328125
+Band 4:
+  Indices of bad pixels: [(11, 26), (28, 34), (31, 6), (31, 59), (38, 3), (43, 30), (53, 15), (58, 9), (60, 32)]
+  Corrected values: [403, 611, 475, 428, 368, 359, 402, 392, 432]
+  L1 Loss: 0.05517578125
+Band 5:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 6:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 7:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 8:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 9:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 10:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 11:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 12:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
+Band 13:
+  Indices of bad pixels: []
+  Corrected values: []
+  L1 Loss: 0.0
