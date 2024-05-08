@@ -384,7 +384,7 @@ def run(UNet):
 
     exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=30, gamma=0.1)
 
-    model = train_model(model, optimizer_ft, exp_lr_scheduler, num_epochs=600)
+    model = train_model(model, optimizer_ft, exp_lr_scheduler, num_epochs=1500)
 
     model.eval()  # Set model to the evaluation mode
 
