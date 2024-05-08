@@ -4,7 +4,7 @@ import random
 from functools import reduce
 import itertools
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, datasets, models
+from torchvision import transforms
 from collections import defaultdict
 import torch.nn.functional as F
 import torch
@@ -13,13 +13,14 @@ from torch.optim import lr_scheduler
 import time
 import copy
 
-# Set seed for reproducibility
-seed = 27
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.backends.cudnn.deterministic = True
+# Set the random seed for NumPy
+np.random.seed(27)
+
+# Set the random seed for PyTorch
+torch.manual_seed(27)
+torch.cuda.manual_seed(27)
+torch.cuda.manual_seed_all(27)  # if you use multiple GPUs
+
 
 def generate_random_data(height, width, count):
     x, y = zip(*[generate_img_and_mask(height, width) for i in range(0, count)])
@@ -57,7 +58,7 @@ def generate_img_and_mask(height, width):
         add_circle(np.zeros(shape, dtype=bool), *circle_location2, fill=True),
         add_triangle(np.zeros(shape, dtype=bool), *triangle_location),
         add_circle(np.zeros(shape, dtype=bool), *circle_location1),
-         add_filled_square(np.zeros(shape, dtype=bool), *mesh_location),
+        add_filled_square(np.zeros(shape, dtype=bool), *mesh_location),
         # add_mesh_square(np.zeros(shape, dtype=bool), *mesh_location),
         add_plus(np.zeros(shape, dtype=bool), *plus_location)
     ]).astype(np.float32)
@@ -140,7 +141,6 @@ def plot_img_array(img_array, ncol=3):
     f, plots = plt.subplots(nrow, ncol, sharex='all', sharey='all', figsize=(ncol * 4, nrow * 4))
 
     for i in range(len(img_array)):
-        plots[i // ncol, i % ncol]
         plots[i // ncol, i % ncol].imshow(img_array[i])
 
 
@@ -265,29 +265,24 @@ def dice_loss(pred, target, smooth=1.):
 def calc_loss(pred, target, metrics, bce_weight=0.5):
     bce = F.binary_cross_entropy_with_logits(pred, target)
 
-    pred = F.sigmoid(pred)
-    dice = dice_loss(pred, target)
+    pred_sigmoid = F.sigmoid(pred)
+    dice = dice_loss(pred_sigmoid, target)
+    
+    # Jaccard index calculation
+    pred_binary = (pred_sigmoid > 0.5).float()
+    intersection = torch.sum(pred_binary * target)
+    union = torch.sum(pred_binary) + torch.sum(target) - intersection
+    jaccard = (intersection + 1e-7) / (union + 1e-7)  # Add a small epsilon to avoid division by zero
 
     loss = bce * bce_weight + dice * (1 - bce_weight)
 
-    metrics['bce'] += bce.data.cpu().numpy() * target.size(0)
-    metrics['dice'] += dice.data.cpu().numpy() * target.size(0)
-    metrics['loss'] += loss.data.cpu().numpy() * target.size(0)
+    metrics['bce'] += bce.item() * target.size(0)
+    metrics['dice'] += dice.item() * target.size(0)
+    metrics['jaccard'] += jaccard.item() * target.size(0)  # Accumulate Jaccard index
+    metrics['loss'] += loss.item() * target.size(0)
 
     return loss
-    
-def calc_metrics(pred, target, metrics):
-    pred = torch.sigmoid(pred)
-    pred_binary = (pred > 0.5).float()
-    
-    intersection = (pred_binary * target).sum(dim=(1, 2))
-    union = (pred_binary + target).sum(dim=(1, 2))
-    
-    jaccard = (intersection / (union - intersection + 1e-7)).mean()  # Adding epsilon to avoid division by zero
-    dice = (2 * intersection / (union + 1e-7)).mean()  # Adding epsilon to avoid division by zero
-    
-    metrics['jaccard'] += jaccard.item() * target.size(0)
-    metrics['dice'] += dice.item() * target.size(0)
+
 
 def print_metrics(metrics, epoch_samples, phase):
     outputs = []
@@ -302,6 +297,12 @@ def train_model(model, optimizer, scheduler, num_epochs=25):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = 1e10
+    best_metrics = {
+        'bce': float('inf'),  # Initialize with a large value for BCE
+        'jaccard': 0,          # Initialize with zero for Jaccard index
+        'dice': 0,             # Initialize with zero for Dice coefficient
+        'loss': float('inf')   # Initialize with a large value for loss
+    }
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -315,6 +316,7 @@ def train_model(model, optimizer, scheduler, num_epochs=25):
                 scheduler.step()
                 for param_group in optimizer.param_groups:
                     print("LR", param_group['lr'])
+                    param_group['lr'] = 1e-05
 
                 model.train()  # Set model to training mode
             else:
@@ -348,47 +350,27 @@ def train_model(model, optimizer, scheduler, num_epochs=25):
             epoch_loss = metrics['loss'] / epoch_samples
 
             # deep copy the model
-            if phase == 'val' and epoch_loss < best_loss:
+            if phase == 'val' and epoch_loss < best_metrics['loss']:
                 print("saving best model")
-                best_loss = epoch_loss
+                best_metrics['bce'] = metrics['bce'] / epoch_samples
+                best_metrics['jaccard'] = metrics['jaccard'] / epoch_samples
+                best_metrics['dice'] = metrics['dice'] / epoch_samples
+                best_metrics['loss'] = metrics['loss'] / epoch_samples
                 best_model_wts = copy.deepcopy(model.state_dict())
 
         time_elapsed = time.time() - since
         print('{:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
-    print('Best val loss: {:4f}'.format(best_loss))
+    # Print the metrics for the best model
+    print('Best metrics for the best model:')
+    print('BCE: {:4f}'.format(best_metrics['bce']))
+    print('Jaccard index: {:4f}'.format(best_metrics['jaccard']))
+    print('Dice coefficient: {:4f}'.format(best_metrics['dice']))
+    print('Loss: {:4f}'.format(best_metrics['loss']))
 
     # load best model weights
     model.load_state_dict(best_model_wts)
     return model
-
-def evaluate_model(model, test_loader):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model.eval()  # Set model to evaluation mode
-
-    jaccard_scores = []
-    dice_scores = []
-
-    for inputs, labels in test_loader:
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-
-        # Predict
-        with torch.no_grad():
-            pred = model(inputs)
-            pred = torch.sigmoid(pred)
-            pred_binary = (pred > 0.5).float()
-
-        intersection = (pred_binary * labels).sum(dim=(1, 2))
-        union = (pred_binary + labels).sum(dim=(1, 2))
-        jaccard_scores.extend((intersection / (union - intersection + 1e-7)).cpu().numpy())
-        dice_scores.extend((2 * intersection / (union + 1e-7)).cpu().numpy())
-
-    avg_jaccard = sum(jaccard_scores) / len(jaccard_scores)
-    avg_dice = sum(dice_scores) / len(dice_scores)
-
-    print("Average Jaccard Index on test set:", avg_jaccard)
-    print("Average Dice Score on test set:", avg_dice)
 
 
 def run(UNet):
@@ -402,7 +384,7 @@ def run(UNet):
 
     exp_lr_scheduler = lr_scheduler.StepLR(optimizer_ft, step_size=30, gamma=0.1)
 
-    model = train_model(model, optimizer_ft, exp_lr_scheduler, num_epochs=60)
+    model = train_model(model, optimizer_ft, exp_lr_scheduler, num_epochs=600)
 
     model.eval()  # Set model to the evaluation mode
 
@@ -434,6 +416,34 @@ def run(UNet):
     pred_rgb = [masks_to_colorimg(x) for x in pred]
 
     plot_side_by_side([input_images_rgb, target_masks_rgb, pred_rgb])
-    
-    # Evaluate the model on the test set
-    evaluate_model(model, test_loader)
+
+    jaccard_scores = []
+    dice_scores = []
+
+    for inputs, labels in test_loader:
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+
+        # Predict
+        with torch.no_grad():
+            pred = model(inputs)
+            pred_sigmoid = F.sigmoid(pred)
+
+        # Calculate Jaccard Index and Dice Score for each batch
+        pred_binary = (pred_sigmoid > 0.5).float()
+        intersection = torch.sum(pred_binary * labels)
+        union = torch.sum(pred_binary) + torch.sum(labels) - intersection
+        jaccard = (intersection + 1e-7) / (union + 1e-7)  # Add a small epsilon to avoid division by zero
+        jaccard_scores.append(jaccard.item())
+
+        dice = (2 * intersection) / (torch.sum(pred_binary) + torch.sum(labels) + 1e-7)
+        dice_scores.append(dice.item())
+
+    # Average Jaccard Index and Dice Score over all batches
+    avg_jaccard = np.mean(jaccard_scores)
+    avg_dice = np.mean(dice_scores)
+
+    print('Average Jaccard Index for test set: {:.4f}'.format(avg_jaccard))
+    print('Average Dice Score for test set: {:.4f}'.format(avg_dice))
+    print('Jacard index', jaccard_scores)
+    print('Dice Score', dice_scores)
